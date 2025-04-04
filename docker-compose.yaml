@@ -1,0 +1,134 @@
+x-node: &node
+  build:
+    context: .
+    dockerfile: Dockerfile
+    secrets:
+      - source: gh-token
+        target: gh-token
+        mode: 0444
+    args:
+      - CLUSTER_NAME=${CLUSTER_NAME:-default}
+      - CLUSTER_ID=${CLUSTER_ID:-1}
+  cap_add:
+    - BPF
+    - NET_ADMIN
+    - SYS_ADMIN
+    - SYS_MODULE
+  # depends_on:
+  #   - bird
+  deploy:
+    mode: global
+  entrypoint:
+    - /lib/systemd/systemd
+    - --log-level=debug
+  networks:
+    - control-plane    
+  privileged: true
+  pull_policy: missing
+  runtime: sysbox-runc
+name: rke2-cluster
+services:
+  master-control-node:
+    <<: *node
+    build:
+      target: master-control-node
+    container_name: ${CLUSTER_NAME}-master-control-node
+    environment:
+      - CLUSTER_NAME=${CLUSTER_NAME:-default}
+      - CLUSTER_ID=${CLUSTER_ID:-1}
+    hostname: ${CLUSTER_NAME:-default}-master-control-node
+    networks:
+      control-plane:
+        aliases:
+          - ${CLUSTER_NAME:-default}-master-control-node
+          - master-control-node
+          - master
+        ipv4_address: 172.31.${CLUSTER_ID:-1}.2
+    volumes:
+      - type: bind
+        source: /lib/modules
+        target: /lib/modules
+        bind: {}
+      - type: bind
+        source: /sys/fs/cgroup
+        target: /sys/fs/cgroup
+        bind: {}  
+      - type: volume
+        source: master-control-node-sysbox
+        target: /var/lib/sysbox
+      - type: volume
+        source: master-control-node-rancher
+        target: /var/lib/rancher/rke2
+      - type: bind
+        source: ./
+        target: /.docker-compose.d
+        bind: {}
+  peer1-control-node:
+    build:
+      target: peer-control-node
+    container_name: ${CLUSTER_NAME:-default}-peer-control-node-1
+    depends_on:
+      master-control-node:
+        condition: service_started
+        required: true
+    hostname: ${CLUSTER_NAME}-peer-control-node
+    volumes:
+      - type: bind
+        source: /lib/modules
+        target: /lib/modules
+        bind: {}
+      - type: bind
+        source: /sys
+        target: /sys
+        bind: {}
+      - type: volume
+        source: peer-control-node1-sysbox
+        target: /var/lib/sysbox
+      - type: volume
+        source: peer-control-node1-rancher
+        target: /var/lib/rancher/rke2
+  bird:
+    build:
+      target: bird
+    container_name: ${CLUSTER_NAME:-default}-bird
+    environment:
+      - CLUSTER_NAME=${CLUSTER_NAME:-default}
+      - CLUSTER_ID=${CLUSTER_ID:-1}
+    hostname: ${CLUSTER_NAME:-default}-bird
+    privileged: true
+    networks:
+      control-plane:
+        ipv4_address: 172.31.${CLUSTER_ID:-1}.13
+        aliases:
+          - ${CLUSTER_NAME:-default}-bird
+          - bird
+          - router
+      load-balancer:
+        ipv4_address: 172.31.${CLUSTER_ID:-1}.254
+networks:
+  control-plane:  
+    name: ${CLUSTER_NAME:-default}-control-plane
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.${CLUSTER_ID:-1}.0/28
+  load-balancer:
+    name: ${CLUSTER_NAME:-default}-load-balancer
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.${CLUSTER_ID:-1}.128/25
+
+secrets:
+  gh-token:
+    environment: "GH_TOKEN"
+
+volumes:
+  master-control-node-rancher:
+    name: ${CLUSTER_NAME:-default}-master-control-node-rancher
+  master-control-node-sysbox:
+    name: ${CLUSTER_NAME:-default}-master-control-node-sysbox
+  peer-control-node1-rancher:
+    name: ${CLUSTER_NAME:-default}-peer-control-node-1-rancher
+  peer-control-node1-sysbox:
+    name: ${CLUSTER_NAME:-default}-peer-control-node-1-sysbox
