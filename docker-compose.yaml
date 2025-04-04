@@ -1,0 +1,92 @@
+x-node: &node
+  build:
+    context: .
+    dockerfile: Dockerfile
+    secrets:
+      - gh-token
+      - rke2-token
+  cap_add:
+    - BPF
+    - NET_ADMIN
+    - SYS_ADMIN
+    - SYS_MODULE
+
+  deploy:
+    mode: global
+  entrypoint:
+    - /lib/systemd/systemd
+    - --log-level=debug
+  privileged: true
+  runtime: sysbox-runc
+name: rke2-cluster
+services:
+  master-control-node:
+    <<: *node
+    build:
+      target: master-control-node
+    container_name: ${PROJECT_NAME}-master-control-node
+    hostname: control-master
+    volumes:
+      - type: bind
+        source: /lib/modules
+        target: /lib/modules
+        bind: {}
+      - type: bind
+        source: /sys/fs/cgroup
+        target: /sys/fs/cgroup
+        bind: {}      
+      - type: volume
+        source: master-control-node-sysbox
+        target: /var/lib/sysbox
+      - type: volume
+        source: master-control-node-rancher
+        target: /var/lib/rancher/rke2
+      - type: bind
+        source: ./tmp
+        target: /var/tmp/shared
+        bind: {}
+  peer-control-node1:
+    build:
+      target: peer-control-node
+    container_name: ${PROJECT_NAME}-peer-control-node1
+    depends_on:
+      master-control-node:
+        condition: service_started
+        required: true
+    hostname: control-peer1
+    volumes:
+      - type: bind
+        source: /lib/modules
+        target: /lib/modules
+        bind: {}
+      - type: bind
+        source: /sys
+        target: /sys
+        bind: {}
+      - type: volume
+        source: peer-control-node1-sysbox
+        target: /var/lib/sysbox
+      - type: volume
+        source: peer-control-node1-rancher
+        target: /var/lib/rancher/rke2
+  router:
+    build:
+      target: router
+    container_name: rke2-router
+    privileged: true
+networks:
+  default:
+    name: rke2-cluster
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.31.${CLUSTER_ID:-1}.0/28
+volumes:
+  master-control-node-rancher:
+    name: docker-rke2-cluster_master-control-node-rancher
+  master-control-node-sysbox:
+    name: docker-rke2-cluster_master-control-node-sysbox
+  peer-control-node1-rancher:
+    name: docker-rke2-cluster_peer-control-node1-rancher
+  peer-control-node1-sysbox:
+    name: docker-rke2-cluster_peer-control-node1-sysbox
