@@ -252,6 +252,10 @@ service-cidr: 10.${CLUSTER_ID}.128.0/17
 EoF
 
 COPY <<'EoF' /assets/rancher/var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kube-system
 ---
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
@@ -280,9 +284,28 @@ spec:
       ui:
         enabled: true
     kubeProxyReplacement: true
+    socketLB:
+      hostNamespaceOnly: true
     operator:
       replicas: 1
       hostNetwork: true
+---
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: rke2-ingress-nginx
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    controller:
+      metrics:
+        service:
+          annotations:
+            prometheus.io/scrape: "true"
+            prometheus.io/port: "10254"
+      config:
+        use-forwarded-headers: "true"
+      allowSnippetAnnotations: "true"  
 ---
   apiVersion: "cilium.io/v2alpha1"
   kind: CiliumLoadBalancerIPPool
@@ -371,6 +394,35 @@ spec:
             operator: In
             values:
               - "never-used-value"
+EoF
+
+RUN --mount=type=secret,id=tskey,required=true \
+    --mount=type=secret,id=tsid,required=true \
+cat <<EoF > /assets/rancher/var/lib/rancher/rke2/server/manifests/rke2-tailscale.yaml
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  namespace: kube-system
+  name: rke2-tailscale-operator
+spec:
+  repo: https://pkgs.tailscale.com/helmcharts
+  chart: tailscale-operator
+  version: 1.82.0
+  targetNamespace: tailscale-system
+  createNamespace: true
+  valuesContent: |-
+    oauth:
+      clientId: "$( cat /run/secrets/tsid )"
+      clientSecret: "$( cat /run/secrets/tskey )"
+---
+apiVersion: tailscale.com/v1alpha1
+kind: Connector
+metadata:
+  name: ts-controlplane-lb-routes
+spec:
+  hostname: ts-controlplane-lb-routes  # Name visible in Tailscale admin
+  subnetRouter:
+    advertiseRoutes:
 EoF
 
 COPY --chmod=a+x <<'EoF' /assets/rancher/usr/local/sbin/cilium-remount-shared.sh
@@ -507,18 +559,17 @@ source <( ip --json addr show eth0 |
           yq -p json -o shell '.[0].addr_info.[] | select(.family == "inet") | { "inet": .local }' )
 
 yq --inplace --from-file=<( cat <<EoE
-.clusters[0].cluster.server = "https://${inet}:6443"
+.clusters[0].cluster.server = "https://${inet}:6443" |
+.users[0].name = "${CLUSTER_NAME}"
 EoE
-) /etc/rancher/rke2/rke2.yaml
+) /etc/rancher/rke2/rke2.yaml 
 
-: Set the kube context to the cluster name
 kubectl config rename-context default ${CLUSTER_NAME}
 kubectl config use-context ${CLUSTER_NAME}
-kubectl config set-context --current --namespace kube-system
+kubectl config set-context --current --user=${CLUSTER_NAME} --namespace=kube-system
 
-mkdir -p /.docker-compose.d/.kubeconfig.d
-rsync -av /etc/rancher/rke2/rke2.yaml /.docker-compose.d/.kubeconfig.d/rke2-${CLUSTER_NAME}.yaml
-
+mkdir -p /.docker-compose/.kubeconfig.d
+rsync -a /etc/rancher/rke2/rke2.yaml /.docker-compose/.kubeconfig.d/rke2-${CLUSTER_NAME}.yaml
 EoF
 
 COPY <<'EoF' /assets/rancher/var/lib/rancher/rke2/server/manifests/rke2-ingress-nginx-config.yaml
@@ -745,7 +796,7 @@ EoF
     helm
 EoR
 
-RUN --mount=type=bind,from=assets,source=/assets/,target=/.assets <<'EoR'
+RUN --mount=type=bind,from=assets,source=/assets/dpkgs/,target=/.dpkgs <<'EoR'
   : Install debian packages
   apt-get install --no-install-recommends -y /.dpkgs/*.deb ||
     rsync -a /.dpkgs/ /var/dpkgs/
@@ -776,7 +827,7 @@ RUN --mount=type=bind,from=assets,source=/assets/,target=/.assets <<'EoR'
       ) eval-all /var/lib/rancher/rke2/server/manifests/metallb.yaml
 
   : Patch the cilium config with cluster environment variables
-  yq --inplace --from-file=<( cat <<EoE | tee /tmp/rke2-cilium-config.yq
+  yq --inplace --from-file=<( cat <<EoE | tee /tmp/kube-system.yq
   ( select( .kind == "CiliumBGPAdvertisement" ) | .spec ) |=
     ( .advertisements[0].advertisementType = "PodCIDR" ) |
   ( select( .kind == "CiliumBGPNodeConfigOverride" ) | .spec ) |=
@@ -789,7 +840,7 @@ RUN --mount=type=bind,from=assets,source=/assets/,target=/.assets <<'EoR'
                            .cluster.id = ${CLUSTER_ID} |
                            to_yaml ) ) |
   ( select( .kind == "CiliumLoadBalancerIPPool" ) | .spec ) |=
-    ( .blocks[0].cidr = "172.31.${CLUSTER_ID}.128/25" ) |
+    ( .blocks[0] = { "cidr": "172.31.${CLUSTER_ID}.128/25", "min": "129", "max": "254" } ) |
   ( select( .kind == "CiliumBGPClusterConfig" ) | .spec ) |=
     with( .bgpInstances[] | select( .name == "instance-65000" ); 
       with( .peers[] | select( .name == "master"); .peerAddress = "172.31.${CLUSTER_ID}.2" ) |
@@ -798,6 +849,13 @@ RUN --mount=type=bind,from=assets,source=/assets/,target=/.assets <<'EoR'
       with( .peers[] | select( .name == "peer3");  .peerAddress = "172.31.${CLUSTER_ID}.5" ) )
   EoE
   ) /var/lib/rancher/rke2/server/manifests/rke2-cilium-config.yaml
+
+  yq --inplace --from-file=<( cat <<EoE
+  ( select( .kind == "Connector" ) | .spec ) |=
+    ( .subnetRouter.advertiseRoutes = 
+      [ "172.31.${CLUSTER_ID}.0/28", "172.31.${CLUSTER_ID}.128/25" ] )
+  EoE
+  ) /var/lib/rancher/rke2/server/manifests/rke2-tailscale.yaml
   
   mkdir -p /etc/rancher/rke2/config.yaml.d
   touch /etc/rancher/rke2/config.yaml.d/cidr.yaml

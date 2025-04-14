@@ -6,6 +6,10 @@
       "cilium-cli": {
         "pkg-path": "cilium-cli"
       },
+      "etcdctl": {
+        "pkg-path": "etcdctl",
+        "pkg-group": "etcd"
+      },
       "ipcalc": {
         "pkg-path": "ipcalc"
       },
@@ -15,6 +19,9 @@
       },
       "lima": {
         "pkg-path": "lima"
+      },
+      "nmap": {
+        "pkg-path": "nmap"
       },
       "podlet": {
         "pkg-path": "podlet"
@@ -42,6 +49,126 @@
     }
   },
   "packages": [
+    {
+      "attr_path": "etcdctl",
+      "broken": false,
+      "derivation": "/nix/store/i98qislb5imgwvlazfglwyzybas5l597-etcd-3.3.27.drv",
+      "description": "Distributed reliable key-value store for the most critical data of a distributed system",
+      "install_id": "etcdctl",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=7f9b6e2babf232412682c09e57ed666d8f84ac2d",
+      "name": "etcd-3.3.27",
+      "pname": "etcdctl",
+      "rev": "7f9b6e2babf232412682c09e57ed666d8f84ac2d",
+      "rev_count": 356435,
+      "rev_date": "2022-02-21T08:47:16Z",
+      "scrape_date": "2024-08-16T03:50:13Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.3.27",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/zzwc37lbh7jrri9i1qcp19s2lqdx8mmn-etcd-3.3.27"
+      },
+      "system": "aarch64-darwin",
+      "group": "etcd",
+      "priority": 5
+    },
+    {
+      "attr_path": "etcdctl",
+      "broken": false,
+      "derivation": "/nix/store/237xy4v6xyngivqqiq73j1s65dgg4s5q-etcd-3.3.27.drv",
+      "description": "Distributed reliable key-value store for the most critical data of a distributed system",
+      "install_id": "etcdctl",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=7f9b6e2babf232412682c09e57ed666d8f84ac2d",
+      "name": "etcd-3.3.27",
+      "pname": "etcdctl",
+      "rev": "7f9b6e2babf232412682c09e57ed666d8f84ac2d",
+      "rev_count": 356435,
+      "rev_date": "2022-02-21T08:47:16Z",
+      "scrape_date": "2024-08-16T03:50:13Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.3.27",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/2w17x8llbskzir81g0kpgdb02imk39kq-etcd-3.3.27"
+      },
+      "system": "aarch64-linux",
+      "group": "etcd",
+      "priority": 5
+    },
+    {
+      "attr_path": "etcdctl",
+      "broken": false,
+      "derivation": "/nix/store/cbnkdqxc09g3vvqsni97az7jzj1gd9l0-etcd-3.3.27.drv",
+      "description": "Distributed reliable key-value store for the most critical data of a distributed system",
+      "install_id": "etcdctl",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=7f9b6e2babf232412682c09e57ed666d8f84ac2d",
+      "name": "etcd-3.3.27",
+      "pname": "etcdctl",
+      "rev": "7f9b6e2babf232412682c09e57ed666d8f84ac2d",
+      "rev_count": 356435,
+      "rev_date": "2022-02-21T08:47:16Z",
+      "scrape_date": "2024-08-16T03:50:13Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.3.27",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/p6q1kbryl0yznasbifr60l8n8jm18hzi-etcd-3.3.27"
+      },
+      "system": "x86_64-darwin",
+      "group": "etcd",
+      "priority": 5
+    },
+    {
+      "attr_path": "etcdctl",
+      "broken": false,
+      "derivation": "/nix/store/i7bmppc291fj33wngaw2clraxinhpcgg-etcd-3.3.27.drv",
+      "description": "Distributed reliable key-value store for the most critical data of a distributed system",
+      "install_id": "etcdctl",
+      "license": "Apache-2.0",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=7f9b6e2babf232412682c09e57ed666d8f84ac2d",
+      "name": "etcd-3.3.27",
+      "pname": "etcdctl",
+      "rev": "7f9b6e2babf232412682c09e57ed666d8f84ac2d",
+      "rev_count": 356435,
+      "rev_date": "2022-02-21T08:47:16Z",
+      "scrape_date": "2024-08-16T03:50:13Z",
+      "stabilities": [
+        "staging",
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "3.3.27",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/08rq3xxvyinmqsm790lagr6xb8si54lk-etcd-3.3.27"
+      },
+      "system": "x86_64-linux",
+      "group": "etcd",
+      "priority": 5
+    },
     {
       "attr_path": "cilium-cli",
       "broken": false,
@@ -501,6 +628,122 @@
       ],
       "outputs": {
         "out": "/nix/store/g53i4bcfjcyyzvnhp2qzhra2212mxcjx-lima-1.0.6"
+      },
+      "system": "x86_64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "nmap",
+      "broken": false,
+      "derivation": "/nix/store/4na7ddnxsb7y4cgiga7bsczp8dp12vgk-nmap-7.95.drv",
+      "description": "Free and open source utility for network discovery and security auditing",
+      "install_id": "nmap",
+      "license": "GPL-2.0-only",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1e5b653dff12029333a6546c11e108ede13052eb",
+      "name": "nmap-7.95",
+      "pname": "nmap",
+      "rev": "1e5b653dff12029333a6546c11e108ede13052eb",
+      "rev_count": 772522,
+      "rev_date": "2025-03-22T18:57:23Z",
+      "scrape_date": "2025-03-24T01:13:31.453884Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "7.95",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/jw5alrnlgpgd75sqzfca0hn2jk640wr5-nmap-7.95"
+      },
+      "system": "aarch64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "nmap",
+      "broken": false,
+      "derivation": "/nix/store/c5x2m8ybmhpqv2c38nx6dvbzciqlrn64-nmap-7.95.drv",
+      "description": "Free and open source utility for network discovery and security auditing",
+      "install_id": "nmap",
+      "license": "GPL-2.0-only",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1e5b653dff12029333a6546c11e108ede13052eb",
+      "name": "nmap-7.95",
+      "pname": "nmap",
+      "rev": "1e5b653dff12029333a6546c11e108ede13052eb",
+      "rev_count": 772522,
+      "rev_date": "2025-03-22T18:57:23Z",
+      "scrape_date": "2025-03-24T01:35:09.439771Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "7.95",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/yd1h9wlan8g46ldgdk79lbk9hkm7ipbv-nmap-7.95"
+      },
+      "system": "aarch64-linux",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "nmap",
+      "broken": false,
+      "derivation": "/nix/store/4rcvx3r5ppiph9dry3an1s8c80q7brp2-nmap-7.95.drv",
+      "description": "Free and open source utility for network discovery and security auditing",
+      "install_id": "nmap",
+      "license": "GPL-2.0-only",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1e5b653dff12029333a6546c11e108ede13052eb",
+      "name": "nmap-7.95",
+      "pname": "nmap",
+      "rev": "1e5b653dff12029333a6546c11e108ede13052eb",
+      "rev_count": 772522,
+      "rev_date": "2025-03-22T18:57:23Z",
+      "scrape_date": "2025-03-24T01:54:15.269762Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "7.95",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/zixcrblyliq2y0p0b2g1yvb4kd0gfzx3-nmap-7.95"
+      },
+      "system": "x86_64-darwin",
+      "group": "toplevel",
+      "priority": 5
+    },
+    {
+      "attr_path": "nmap",
+      "broken": false,
+      "derivation": "/nix/store/xsr2aqszs3fqc14bakb6vha4f46difrf-nmap-7.95.drv",
+      "description": "Free and open source utility for network discovery and security auditing",
+      "install_id": "nmap",
+      "license": "GPL-2.0-only",
+      "locked_url": "https://github.com/flox/nixpkgs?rev=1e5b653dff12029333a6546c11e108ede13052eb",
+      "name": "nmap-7.95",
+      "pname": "nmap",
+      "rev": "1e5b653dff12029333a6546c11e108ede13052eb",
+      "rev_count": 772522,
+      "rev_date": "2025-03-22T18:57:23Z",
+      "scrape_date": "2025-03-24T02:17:00.666749Z",
+      "stabilities": [
+        "unstable"
+      ],
+      "unfree": false,
+      "version": "7.95",
+      "outputs_to_install": [
+        "out"
+      ],
+      "outputs": {
+        "out": "/nix/store/8201jk2f5m1bzygn4x6wrjwqxrnq8r5m-nmap-7.95"
       },
       "system": "x86_64-linux",
       "group": "toplevel",

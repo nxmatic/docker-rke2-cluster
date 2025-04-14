@@ -17,6 +17,8 @@ ipcalc.pkg-path = "ipcalc"
 kustomize.pkg-path = "kustomize"
 kustomize.version = "5.6.0"
 cilium-cli.pkg-path = "cilium-cli"
+etcdctl = { pkg-path = "etcdctl", pkg-group = "etcd" }
+nmap.pkg-path = "nmap"
 # hello.pkg-path = "hello"
 # nodejs = { version = "^20.15.1", pkg-path = "nodejs" }
 
