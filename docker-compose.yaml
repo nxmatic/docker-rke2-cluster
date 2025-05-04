@@ -1,6 +1,8 @@
 x-node: &node
   build:
-    context: .
+    context: ./Dockerfile.d
+    additional_contexts:
+      dpkgs.d: ./dpkgs.d
     dockerfile: Dockerfile
     secrets:
       - source: gh-token
@@ -31,8 +33,16 @@ services:
   master-control-node:
     <<: *node
     build:
+      additional_contexts:
+        dpkgs.d: ./dpkgs.d
+      args:
+        - CLUSTER_NAME=${CLUSTER_NAME:-default}
+        - CLUSTER_ID=${CLUSTER_ID:-1}
+      secrets:
+        - source: gh-token
+          target: gh-token
       target: master-control-node
-    container_name: ${CLUSTER_NAME}-master-control-node
+    container_name: ${CLUSTER_NAME:-default}-master-control-node
     environment:
       - CLUSTER_NAME=${CLUSTER_NAME:-default}
       - CLUSTER_ID=${CLUSTER_ID:-1}

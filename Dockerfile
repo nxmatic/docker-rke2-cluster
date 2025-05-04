@@ -1,6 +1,12 @@
 # docker-language-server: ignore
+
+FROM scratch AS dpkgs
+COPY --from=dpkgs.d . /
+
 FROM debian:bookworm-slim AS assets
 
+ARG CLUSTER_NAME=default
+ARG CLUSTER_ID=1
 
 ENV DEBIAN_FRONTEND=noninteractive
 SHELL [ "/usr/bin/env", "-S", "bash", "-ex", "-o", "pipefail", "-c" ]
@@ -46,7 +52,8 @@ RUN --mount=type=secret,id=gh-token,required=true <<'EoR'
     tar --extract --gunzip --directory=/assets/binaries --file=/dev/stdin lazygit
 EoR
 
-RUN --mount=type=secret,id=gh-token,required=true <<'EoR'
+RUN --mount=type=secret,id=gh-token,required=true \
+    --mount=from=dpkgs,target=/dpkgs.d <<'EoR'
   : Get latest release of sysbox
   
   : Load GitHub token
@@ -57,10 +64,12 @@ RUN --mount=type=secret,id=gh-token,required=true <<'EoR'
   TAG=$( jq -r .tag_name <<< "${JSON}" )
   VERSION=${TAG#v}
   ARCH=$( dpkg --print-architecture )
-  DEB_URL=https://downloads.nestybox.com/sysbox/releases/${TAG}/sysbox-ce_${VERSION}-0.linux_${ARCH}.deb
+  DEB_FILE=sysbox-ce_${VERSION}-0.linux_${ARCH}.deb
+  DEB_URL=https://downloads.nestybox.com/sysbox/releases/${TAG}/${DEB_FILE}
   
   : Download the debian package
-  wget --quiet --content-disposition -P /assets/dpkgs "$DEB_URL"
+  wget --quiet --content-disposition -P /assets/dpkgs "$DEB_URL" ||
+    cp /dpkgs.d/${DEB_FILE} /assets/dpkgs/
 EoR
 
 RUN --mount=type=secret,id=gh-token,required=true <<'EoR'
@@ -246,7 +255,7 @@ etcd-expose-metrics: true
 cni:
   - cilium
 ingress-controller: traefik
-debug: true
+debug: false
 cluster-cidr: 10.${CLUSTER_ID}.0.0/17
 service-cidr: 10.${CLUSTER_ID}.128.0/17
 EoF
@@ -414,89 +423,41 @@ spec:
     oauth:
       clientId: "$( cat /run/secrets/tsid )"
       clientSecret: "$( cat /run/secrets/tskey )"
+    operatorConfig:
+      hostname: "${CLUSTER_NAME}-tailscale-operator"
 ---
 apiVersion: tailscale.com/v1alpha1
 kind: Connector
 metadata:
   name: ts-controlplane-lb-routes
 spec:
-  hostname: ts-controlplane-lb-routes  # Name visible in Tailscale admin
+  hostname: ${CLUSTER_NAME}-controlplane-lb-routes  # Name visible in Tailscale admin
   subnetRouter:
     advertiseRoutes:
 EoF
 
-COPY --chmod=a+x <<'EoF' /assets/rancher/usr/local/sbin/cilium-remount-shared.sh
+COPY --chmod=a+x <<'EoF' /assets/rancher/usr/local/sbin/rke2-remount-shared.sh
 #!/usr/bin/env -S bash -exu -o pipefail
-: Remount cilium shared volumes
+: Remount shared volumes
 
+mount --make-shared /
 mount --make-shared -t bpf bpf /sys/fs/bpf
 mount --make-shared /run
 EoF
 
-COPY <<'EoF' /assets/rancher/etc/systemd/system/cilium-remount-shared.service
+COPY <<'EoF' /assets/rancher/etc/systemd/system/rke2-remount-shared.service
 [Unit]
-Description=Remount cilium required volumes as shared
+Description=Remount RKE2 required volumes as shared
 Before=rke2-server.service
 DefaultDependencies=no
 
 [Service]
 Type=oneshot
-ExecStart=/usr/local/sbin/cilium-remount-shared.sh
+ExecStart=/usr/local/sbin/rke2-remount-shared.sh
 RemainAfterExit=true
 
 [Install]
 WantedBy=multi-user.target
-EoF
-
-COPY <<'EoF' /assets/rancher/var/lib/rancher/rke2/server/manifests/metallb.yaml
-# metallb namespace
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: metallb-system
----
-# metallab BGP peer
-apiVersion: metallb.io/v1beta2
-kind: BGPPeer
-metadata:
-  name: router-peer
-  namespace: metallb-system
-spec:
-  myASN: 64513               # MetalLB  ASN
-  peerASN: 64512             # Router ASN
-  peerAddress: 172.31.1.13   # Router IP address
----
-# metallb load-balancer address pool
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: load-balancer
-  namespace: metallb-system
-spec:
-  addresses:
----
-# BGP advertisement
-apiVersion: metallb.io/v1beta1
-kind: BGPAdvertisement
-metadata:
-  name: load-balancer-adv
-  namespace: metallb-system
-spec:
-  ipAddressPools:
-  - load-balancer-pool  # Reference the IPAddressPool defined earlier
----
-# metallb helm chart deployment     
-apiVersion: helm.cattle.io/v1
-kind: HelmChart
-metadata:
-  name: metallb
-  namespace: kube-system
-spec:
-  repo: https://metallb.github.io/metallb
-  chart: metallb
-  version: 0.14.9
-  targetNamespace: metallb-system
 EoF
 
 COPY <<'EoF' /assets/rancher/etc/systemd/system/rke2-install.service
@@ -517,9 +478,9 @@ EoF
 
 COPY <<'EoF' /assets/rancher/etc/systemd/system/rke2-server.service.d/start.conf
 [Unit]
-Requires=cilium-remount-shared.service
-Wants=cilium-remount-shared.service
-After=cilium-remount-shared.service
+Requires=rke2-remount-shared.service
+Wants=rke2-remount-shared.service
+After=rke2-remount-shared.service
 
 [Service]
 ExecStartPre=/usr/local/sbin/rke2-pre-start.sh
@@ -569,7 +530,7 @@ kubectl config use-context ${CLUSTER_NAME}
 kubectl config set-context --current --user=${CLUSTER_NAME} --namespace=kube-system
 
 mkdir -p /.docker-compose/.kubeconfig.d
-rsync -a /etc/rancher/rke2/rke2.yaml /.docker-compose/.kubeconfig.d/rke2-${CLUSTER_NAME}.yaml
+rsync -a /etc/rancher/rke2/rke2.yaml /.docker-compose.d/.kubeconfig.d/rke2-${CLUSTER_NAME}.yaml
 EoF
 
 COPY <<'EoF' /assets/rancher/var/lib/rancher/rke2/server/manifests/rke2-ingress-nginx-config.yaml
@@ -812,20 +773,8 @@ RUN --mount=type=bind,from=assets,source=/assets/,target=/.assets <<'EoR'
   : Install Rancher configuration assets
   rsync -av /.assets/rancher/ /
 
-  rm /var/lib/rancher/rke2/server/manifests/metallb.yaml
-
-  : Patch the metallb config with cluster environment variables
+  : Patch asset files with cluster environment variables
   cat <<'EoF' | cut -c 3- | tee -a /usr/local/sbin/rke2-pre-start.sh
-  : Injecting cluster variable into metallb config
-  [[ -f /var/lib/rancher/rke2/server/manifests/metallb.yaml ]] &&
-    yq --inplace --from-file=<( cat <<EoE
-  ( select(.kind == "IPAddressPool") | .spec ) |= 
-    ( .addresses = [ "172.31.${CLUSTER_ID}.128/25" ] ) |
-  ( select( .kind == "BGPPeer" ) | .spec ) |=
-    ( .peerAddress = "172.31.${CLUSTER_ID}.13" )
-  EoE
-      ) eval-all /var/lib/rancher/rke2/server/manifests/metallb.yaml
-
   : Patch the cilium config with cluster environment variables
   yq --inplace --from-file=<( cat <<EoE | tee /tmp/kube-system.yq
   ( select( .kind == "CiliumBGPAdvertisement" ) | .spec ) |=
@@ -882,7 +831,7 @@ RUN <<'EoR'
     env DEBUG=1 INSTALL_RKE2_TYPE=server sh -
  
   : Enable and start the RKE2 server service
-  systemctl enable cilium-remount-shared
+  systemctl enable rke2-remount-shared
   systemctl enable rke2-server
   systemctl start rke2-server
 EoF
