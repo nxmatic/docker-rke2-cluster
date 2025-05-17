@@ -233,6 +233,7 @@ EoF
 # Define the RKE2 configuration files
 COPY <<'EoF' /assets/rancher/etc/rancher/rke2/bashrc
 set -a
+ARCH=$( dpkg --print-architecture )
 PATH=/var/lib/rancher/rke2/bin:$PATH
 KUBECONFIG=/etc/rancher/rke2/rke2.yaml
 CONTAINERD_ADDRESS=/run/k3s/containerd/containerd.sock
@@ -254,8 +255,7 @@ write-kubeconfig-mode: "0640"
 etcd-expose-metrics: true
 cni:
   - cilium
-ingress-controller: traefik
-debug: false
+ingress-controller: ingress-nginx
 cluster-cidr: 10.${CLUSTER_ID}.0.0/17
 service-cidr: 10.${CLUSTER_ID}.128.0/17
 EoF
@@ -269,7 +269,7 @@ metadata:
 apiVersion: helm.cattle.io/v1
 kind: HelmChartConfig
 metadata:
-  name: rke2-cilium
+  name: cilium
   namespace: kube-system
 spec:
   valuesContent: |-
@@ -286,6 +286,12 @@ spec:
           loadBalancerClass: io.cilium/bgp-control-plane
     envoy:
       enabled: true
+    gatewayAPI:
+      enabled: false
+    ingressController:
+      default: true
+      enabled: true
+      loadBalancerMode: dedicated
     hubble:
       enabled: true
       relay:
@@ -296,7 +302,6 @@ spec:
     socketLB:
       hostNamespaceOnly: true
     operator:
-      replicas: 1
       hostNetwork: true
 ---
 apiVersion: helm.cattle.io/v1
@@ -405,14 +410,92 @@ spec:
               - "never-used-value"
 EoF
 
+COPY <<'EoF' /assets/rancher/var/lib/rancher/rke2/server/manifests/envoy-gateway.yaml
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: envoy-gateway
+  namespace: kube-system
+spec:
+  chart: oci://docker.io/envoyproxy/gateway-helm
+  version: v0.0.0-latest
+  targetNamespace: envoy-gateway-system
+  createNamespace: true
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: envoy
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller  
+EoF
+
+#RUN curl -sL https://github.com/longhorn/longhorn/raw/refs/heads/master/deploy/prerequisite/longhorn-iscsi-installation.yaml \
+#    -o /assets/rancher/var/lib/rancher/rke2/server/manifests/longhorn-iscsi-installation.yaml
+
+COPY <<'EoF' /assets/rancher/var/lib/rancher/rke2/server/manifests/longhorn-storage.yaml
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: longhorn-storage
+  namespace: kube-system
+spec:
+  version: v1.8.1
+  chart: longhorn
+  repo: https://charts.longhorn.io
+  failurePolicy: abort
+  targetNamespace: longhorn-system
+  createNamespace: true
+  valuesContent: |-
+    persistence:
+      defaultClassReplicaCount: 1
+    defaultSettings:
+      replicaSoftAntiAffinity: true
+      replicaZoneSoftAntiAffinity: true
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: frontend
+  namespace: longhorn-system
+spec:
+  gatewayClassName: envoy
+  listeners:
+  - protocol: HTTP
+    port: 80
+    name: frontend
+    allowedRoutes:
+      namespaces:
+        from: Same
+    hostname: longhorn.alcide.cluster
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: frontend
+  namespace: longhorn-system
+spec:
+  parentRefs:
+  - name: frontend
+    namespace: longhorn-system
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /
+    backendRefs:
+    - name: longhorn-frontend
+      port: 80
+EoF
+
 RUN --mount=type=secret,id=tskey,required=true \
     --mount=type=secret,id=tsid,required=true \
-cat <<EoF > /assets/rancher/var/lib/rancher/rke2/server/manifests/rke2-tailscale.yaml
+cat <<EoF > /assets/rancher/var/lib/rancher/rke2/server/manifests/tailscale-operator.yaml
 apiVersion: helm.cattle.io/v1
 kind: HelmChart
 metadata:
   namespace: kube-system
-  name: rke2-tailscale-operator
+  name: tailscale-operator
 spec:
   repo: https://pkgs.tailscale.com/helmcharts
   chart: tailscale-operator
@@ -504,33 +587,45 @@ EoF
 COPY --chmod=a+x <<'EoF' /assets/rancher/usr/local/sbin/rke2-post-start.sh 
 #!/usr/bin/env -S bash -exu -o pipefail
 
-: Load the RKE2 bashrc 
+: Load RKE2 environment
 source /etc/rancher/rke2/bashrc
 
-: Load the RKE2 bashrc system wide
-source <( cat <<'EoRC' | tee -a /etc/bash.bashrc
+: Install longhornctl
+trap 'rm -f /tmp/longhornctl-linux-${ARCH}' EXIT
+curl --output-dir /tmp -LO "https://github.com/longhorn/cli/releases/download/v1.8.1/longhornctl-linux-${ARCH}"
+install -m 755 "/tmp/longhornctl-linux-${ARCH}" /usr/local/bin/longhornctl
 
+: Configure system-wide RKE2 environment
+cat <<'EoRC' | tee -a /etc/bash.bashrc >/dev/null
 : RKE2 server environment variables
 source /etc/rancher/rke2/bashrc
 EoRC
-)
 
-: Patch the cluster kube context for the IP address
-source <( ip --json addr show eth0 | 
-          yq -p json -o shell '.[0].addr_info.[] | select(.family == "inet") | { "inet": .local }' )
+: Get current IP address
+source <(ip --json addr show eth0 |
+         yq -p json -o shell '.[0].addr_info.[] | select(.family == "inet") | { "inet": .local }')
 
-yq --inplace --from-file=<( cat <<EoE
+
+: Create working copy of kubeconfig
+KUBECONFIG="/.docker-compose.d/.kubeconfig.d/rke2-${CLUSTER_NAME}.yaml"
+
+mkdir -p $( dirname "$KUBECONFIG" )
+cp /etc/rancher/rke2/rke2.yaml "$KUBECONFIG"
+chmod 600 "$KUBECONFIG"
+
+: Apply modifications to working copy
+yq --inplace --from-file=<(cat <<EoE
+.clusters[0].cluster.name = "${CLUSTER_NAME}" |
 .clusters[0].cluster.server = "https://${inet}:6443" |
-.users[0].name = "${CLUSTER_NAME}"
+.clusters[0].name = "${CLUSTER_NAME}" |
+.contexts[0].context.cluster = "${CLUSTER_NAME}" |
+.contexts[0].context.namespace = "kube-system" |
+.contexts[0].context.user = "${CLUSTER_NAME}" |
+.contexts[0].name = "${CLUSTER_NAME}" |
+.users[0].name = "${CLUSTER_NAME}" |
+.current-context = "${CLUSTER_NAME}"
 EoE
-) /etc/rancher/rke2/rke2.yaml 
-
-kubectl config rename-context default ${CLUSTER_NAME}
-kubectl config use-context ${CLUSTER_NAME}
-kubectl config set-context --current --user=${CLUSTER_NAME} --namespace=kube-system
-
-mkdir -p /.docker-compose/.kubeconfig.d
-rsync -a /etc/rancher/rke2/rke2.yaml /.docker-compose.d/.kubeconfig.d/rke2-${CLUSTER_NAME}.yaml
+) "$KUBECONFIG"
 EoF
 
 COPY <<'EoF' /assets/rancher/var/lib/rancher/rke2/server/manifests/rke2-ingress-nginx-config.yaml
@@ -564,6 +659,23 @@ SHELL [ "/usr/bin/env", "-S", "bash", "-ex", "-o", "pipefail", "-c" ]
 EXPOSE 22
 
 RUN <<'EoR'
+  : Add contrib components
+  cat <<EoF | cut -c 3- | tee /etc/apt/sources.list.d/debian-contrib.sources
+  Types: deb
+  # http://snapshot.debian.org/archive/debian/20250428T000000Z
+  URIs: http://deb.debian.org/debian
+  Suites: bookworm bookworm-updates
+  Components: contrib
+  Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+  
+  Types: deb
+  # http://snapshot.debian.org/archive/debian-security/20250428T000000Z
+  URIs: http://deb.debian.org/debian-security
+  Suites: bookworm-security
+  Components: contrib
+  Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
+EoF
+  
   : Add backports repository
   cat <<EoF | cut -c 3- | tee -a /etc/apt/sources.list.d/debian-backports.sources
   Types: deb
@@ -573,7 +685,7 @@ RUN <<'EoR'
   Components: main
   Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg
 EoF
-
+  
   : Update package lists
   apt-get update
   apt-get dist-upgrade -y
@@ -609,7 +721,7 @@ RUN <<'EoR'
     gnupg \
     file binutils acl pv \
     strace tshark nmap \
-    open-iscsi nfs-common \
+    zfsutils-linux \
     ca-certificates
 EoR
 
@@ -746,6 +858,11 @@ COPY --from=assets /bird/ /
 
 FROM systemd AS control-node
 
+COPY --chmod=a+x <<'EoF' /usr/local/sbin/iscsiadm
+#!/usr/bin/env -S bash -exu -o pipefail
+exec chroot /host /usr/bin/env -i PATH="/sbin:/bin:/usr/bin" iscsiadm "${@:1}"
+EoF
+
 RUN <<'EoR'
   : Install helm command line tool
   curl https://baltocdn.com/helm/signing.asc | gpg --dearmor | sudo tee /usr/share/keyrings/helm.gpg > /dev/null
@@ -804,7 +921,7 @@ RUN --mount=type=bind,from=assets,source=/assets/,target=/.assets <<'EoR'
     ( .subnetRouter.advertiseRoutes = 
       [ "172.31.${CLUSTER_ID}.0/28", "172.31.${CLUSTER_ID}.128/25" ] )
   EoE
-  ) /var/lib/rancher/rke2/server/manifests/rke2-tailscale.yaml
+  ) /var/lib/rancher/rke2/server/manifests/tailscale-operator.yaml
   
   mkdir -p /etc/rancher/rke2/config.yaml.d
   touch /etc/rancher/rke2/config.yaml.d/cidr.yaml

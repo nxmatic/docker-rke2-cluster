@@ -20,6 +20,9 @@ x-node: &node
   #   - bird
   deploy:
     mode: global
+  devices:
+    - /dev/zfs:/dev/zfs
+    - /dev/zpool/tank/nerd/longhorn/master:/dev/zpool/tank/nerd/longhorn/master
   entrypoint:
     - /lib/systemd/systemd
     - --log-level=debug
@@ -62,7 +65,11 @@ services:
       - type: bind
         source: /sys/fs/cgroup
         target: /sys/fs/cgroup
-        bind: {}  
+        bind: {}
+      - type: bind
+        source: /
+        target: /host
+        bind: { propagation: rslave }
       - type: volume
         source: master-control-node-sysbox
         target: /var/lib/sysbox
